@@ -1,0 +1,271 @@
+diff --git a/.gitignore b/.gitignore
+index cc99d65e24d669572bf52a23d6611f2da23cf1da..7258da9ce5873df35fd1b44653a489af95635ea1 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -125,6 +125,16 @@ apps/desktop/release/
+ apps/desktop/.staging-*/
+ *.tsbuildinfo
+ 
++# Flatpak build artifacts (large Electron binaries, OSTree repo)
++apps/desktop/flatpak/stage/
++apps/desktop/flatpak/repo/
++apps/desktop/flatpak/build-dir/
++
++# Snapcraft build artifacts
++apps/desktop/snap/prime/
++apps/desktop/snap/stage/
++apps/desktop/snap/parts/
++
+ # Web UI assets — synced from @nous-research/ui at build time via
+ # `npm run sync-assets` (see web/package.json).
+ web/public/fonts/
+diff --git a/apps/desktop/electron/main.ts b/apps/desktop/electron/main.ts
+index 3206f7e63c2e2e7bdbdfe49868e44303252d0264..7fab69347c9473edd1ccf1d8349f10453b5f5a51 100644
+--- a/apps/desktop/electron/main.ts
++++ b/apps/desktop/electron/main.ts
+@@ -634,6 +634,7 @@ import { ChannelStrategy } from './updater/channel-strategy'
+ import { verifyPreparedChannelInstaller } from './updater/channel-windows-host'
+ import { type CheckoutStrategy, createCheckoutStrategy } from './updater/checkout'
+ import { readSourceUpdate, sourceChannelName, type SourceUpdate } from './updater/checkout-source'
++import { resolvePackageUpdate } from './package-update'
+ import { ExternalStrategy } from './updater/external'
+ import { readUpdatesFeedBaseFromConfig, resolveFeedBaseUrl } from './updater/feed-config'
+ import { createChannelMacStrategy, createMacStrategy } from './updater/mac-client'
+@@ -3467,6 +3468,19 @@ function emitUpdateProgress(payload) {
+ }
+ 
+ async function checkUpdates(opts: { force?: boolean } = {}): Promise<UpdaterStatusWire> {
++  const packageManager = resolvePackageUpdate(process.env)
++
++  if (packageManager) {
++    return {
++      supported: false,
++      mechanism: 'external',
++      reason: packageManager.reason,
++      message: `${packageManager.message} ${packageManager.command}`,
++      command: packageManager.command,
++      fetchedAt: Date.now()
++    }
++  }
++
+   // A packaged install delegates to the update owner named by its stamp.
+   let strategy: UpdaterStrategy | null = null
+ 
+@@ -4402,6 +4416,18 @@ async function applyUpdates(): Promise<UpdaterApplyResultWire> {
+     let handedOff: boolean = false
+ 
+     try {
++      const packageManager = resolvePackageUpdate(process.env)
++
++      if (packageManager) {
++        return {
++          ok: true,
++          manual: true,
++          mechanism: 'external',
++          command: packageManager.command,
++          message: packageManager.message
++        }
++      }
++
+       // The local handoff asks the window to exit and the update scripts only
+       // wait so long for that PID — never start that deadline while quit would
+       // still be gated on a managed SSH update or its recovery transaction
+diff --git a/apps/desktop/electron/updater/index.ts b/apps/desktop/electron/updater/index.ts
+index bcab529ae7170812b1caeee9ffe072db524f855f..7450d5ea068de9d518245cc0c091c265b8e674d1 100644
+--- a/apps/desktop/electron/updater/index.ts
++++ b/apps/desktop/electron/updater/index.ts
+@@ -54,6 +54,8 @@ export interface UpdaterStatusWire {
+   currentBranch?: string
+   reason?: string
+   message?: string
++  /** Host package-manager command when a Flatpak or Snap cannot self-update. */
++  command?: string
+   advice?: string
+   error?: string
+   behind?: number | null
+diff --git a/apps/desktop/package.json b/apps/desktop/package.json
+index b8e33c346368da117ffa45dde0854be84dc36ea0..63b23f011c144daaa624fa1cd3df6d53397643a0 100644
+--- a/apps/desktop/package.json
++++ b/apps/desktop/package.json
+@@ -41,6 +41,9 @@
+     "dist:win": "npm run build && npm run builder -- --win msix",
+     "dist:win:msix": "npm run build && npm run builder -- --win msix",
+     "dist:linux": "npm run build && npm run builder -- --linux AppImage deb rpm",
++    "dist:flatpak": "node scripts/stage-flatpak.mjs && flatpak-builder --force-clean --repo flatpak/repo flatpak/build-dir flatpak/com.nousresearch.Hermes.yml && flatpak build-bundle flatpak/repo release/com.nousresearch.Hermes.flatpak com.nousresearch.Hermes",
++    "dist:snap": "node scripts/stage-snap.mjs && snapcraft --destructive-mode",
++    "test:flatpak-manifest": "vitest run --project electron electron/flatpak-manifest.test.ts",
+     "perf": "node scripts/perf/run.mjs",
+     "update:shim": "bash ../../scripts/desktop-update/repro.sh shim",
+     "update:shim:fail": "bash ../../scripts/desktop-update/repro.sh shim-fail",
+diff --git a/apps/desktop/scripts/run-electron-builder.mjs b/apps/desktop/scripts/run-electron-builder.mjs
+index ca780b8b181f5e911b96e056992c0de2238f2a8c..fc0dc60f6f6553189b570d1f3b38be1be45e2bdd 100644
+--- a/apps/desktop/scripts/run-electron-builder.mjs
++++ b/apps/desktop/scripts/run-electron-builder.mjs
+@@ -76,6 +76,10 @@ function toolsetArguments(inputs) {
+   const config = require(path.join(app, 'electron-builder.config.cjs'))
+   const tools = path.join(app, config.directories?.buildResources || 'build', 'prepared-packaging-tools')
+   fs.mkdirSync(tools, { recursive: true })
++  // apps/desktop/package.json is "type": "module". electron-builder's copied
++  // icon tool is CommonJS .js; without this, Node loads it as ESM and the
++  // AppImage icon step dies with "require is not defined".
++  fs.writeFileSync(path.join(tools, 'package.json'), '{"type":"commonjs"}\n')
+   return Object.entries(inputs.toolsets).map(([name, directory]) => {
+     const destination = path.join(tools, name)
+     fs.rmSync(destination, { recursive: true, force: true })
+diff --git a/apps/desktop/src/global.d.ts b/apps/desktop/src/global.d.ts
+index b266da09084b763017fd34ad93e0aba8dda2d700..b9c4beca0fe6d4bbbc15e2f850475914cbe179bd 100644
+--- a/apps/desktop/src/global.d.ts
++++ b/apps/desktop/src/global.d.ts
+@@ -879,6 +879,8 @@ export interface DesktopUpdateStatus {
+   currentBranch?: string
+   reason?: string
+   message?: string
++  /** Exact host package-manager command when a packaged client cannot self-update. */
++  command?: string
+   error?: string
+   /** Exact commits behind. null = update available, but the count is
+    *  unknowable (shallow clone without a merge-base) — never render it as a
+diff --git a/hermes_cli/main_desktop.py b/hermes_cli/main_desktop.py
+index 537a84f0057e81edea131b0dd6a02423ea22e1ea..13c1387582e2f0f7239a14768b6194da246cf44c 100644
+--- a/hermes_cli/main_desktop.py
++++ b/hermes_cli/main_desktop.py
+@@ -1627,8 +1627,63 @@ def _launch_installed_macos_desktop_app() -> bool:
+     return True
+ 
+ 
++def _project_root() -> Path:
++    from hermes_cli.main import PROJECT_ROOT
++
++    return PROJECT_ROOT
++
++
++def _launch_linux_packaged_client(args: argparse.Namespace) -> bool:
++    """Launch the Flatpak or Snap desktop client, or return False for the local build.
++
++    ``--source`` keeps the checkout build. Flatpak is the Flathub client.
++    ``--snapd`` builds the snap from this workspace. The native CLI and
++    ``~/.hermes`` stay outside the package.
++    """
++    if not sys.platform.startswith("linux") or getattr(args, "source", False):
++        return False
++    flatpak = bool(getattr(args, "flatpak", False))
++    snapd = bool(getattr(args, "snapd", False))
++    if not flatpak and not snapd:
++        return False
++
++    cwd = getattr(args, "cwd", None) or os.getcwd()
++    if flatpak:
++        from hermes_cli.flatpak_desktop import (
++            ensure_installed,
++            launch_with_native_backend,
++        )
++
++        if getattr(args, "build_only", False):
++            sys.exit(0 if ensure_installed() else 1)
++        sys.exit(
++            launch_with_native_backend(
++                [sys.executable, "-m", "hermes_cli.main"],
++                cwd=cwd,
++            )
++        )
++
++    from hermes_cli.snap_desktop import (
++        build_snap,
++        install_snap,
++        launch_with_native_backend as launch_snap,
++    )
++
++    snap_path = build_snap(_project_root())
++    if snap_path is None or not install_snap(snap_path):
++        sys.exit(1)
++    sys.exit(
++        launch_snap(
++            [sys.executable, "-m", "hermes_cli.main"],
++            cwd=cwd,
++        )
++    )
++
++
+ def cmd_gui(args: argparse.Namespace):
+     """Build and launch the native Electron desktop GUI."""
++    if _launch_linux_packaged_client(args):
++        return
+     from hermes_cli.main import PROJECT_ROOT
+     from hermes_cli.source_build import prepare_source_dependencies, source_build_env
+     desktop_dir = PROJECT_ROOT / "apps" / "desktop"
+diff --git a/hermes_cli/subcommands/gui.py b/hermes_cli/subcommands/gui.py
+index a4dd29d50af9bb96285208ec008b4a509cc16441..6835db91149c52aee1a9d1feaafc0b23e7ecf6a9 100644
+--- a/hermes_cli/subcommands/gui.py
++++ b/hermes_cli/subcommands/gui.py
+@@ -59,4 +59,14 @@ def build_gui_parser(subparsers, *, cmd_gui: Callable) -> None:
+         action="store_true",
+         help="Close the preview pane and exit its fullscreen (out-of-band escape hatch when the pane captured all input)",
+     )
++    gui_parser.add_argument(
++        "--flatpak",
++        action="store_true",
++        help="Linux: install and launch the Hermes Desktop Flatpak instead of the local build",
++    )
++    gui_parser.add_argument(
++        "--snapd",
++        action="store_true",
++        help="Linux: build and launch the Hermes Desktop snap from this workspace",
++    )
+     gui_parser.set_defaults(func=cmd_gui)
+diff --git a/tests/hermes_cli/test_gui_command.py b/tests/hermes_cli/test_gui_command.py
+index b62a8d385949e8788a00f2e7acc71563dd543b8e..feca6c4d52ddcbcf80e3a1d3e0a005a40f83d4ab 100644
+--- a/tests/hermes_cli/test_gui_command.py
++++ b/tests/hermes_cli/test_gui_command.py
+@@ -89,15 +89,9 @@ def _make_desktop_tree(tmp_path: Path) -> Path:
+ def _make_packaged_executable(root: Path, monkeypatch) -> Path:
+     """Create the packaged-app path layout electron-builder emits on THIS host.
+ 
+-    The layout is keyed off the real ``sys.platform`` rather than a caller-
+-    supplied override: ``cmd_gui`` resolves the executable through the same
+-    branch, so faking the platform here only proved the test and the code
+-    agreed about a host neither was running on.
+-
+-    Note the Linux arm also lays down ``chrome-sandbox``. ``cmd_gui`` refuses to
+-    launch without it (Electron's setuid sandbox helper), which the old
+-    darwin-by-default fake concealed — on Linux the packaged tree genuinely has
+-    to include it.
++    Keyed off the real ``sys.platform``: faking the platform here made the test
++    and cmd_gui agree about a host neither was running on, and concealed that
++    the Linux packaged tree needs ``chrome-sandbox``.
+     """
+     desktop_dir = root / "apps" / "desktop"
+     if sys.platform == "darwin":
+@@ -338,6 +332,33 @@ def test_gui_close_preview_flag_forwards_to_packaged_exe(tmp_path, monkeypatch):
+     else:
+         assert launched == [[str(packaged_exe), "--close-preview"]]
+ 
++def test_gui_snapd_flag_builds_and_launches_local_snap(monkeypatch, tmp_path):
++    """`hermes desktop --snapd`: build + install + launch against native backend."""
++    monkeypatch.setattr(main_desktop.sys, "platform", "linux")
++    built = []
++    installed = []
++    launched = []
++
++    import hermes_cli.snap_desktop as snap_mod
++
++    snap_file = tmp_path / "hermes-desktop.snap"
++    snap_file.write_bytes(b"fake")
++    monkeypatch.setattr(snap_mod, "build_snap", lambda root: built.append(root) or snap_file)
++    monkeypatch.setattr(snap_mod, "install_snap", lambda p: installed.append(p) or True)
++    monkeypatch.setattr(
++        snap_mod,
++        "launch_with_native_backend",
++        lambda command, *, cwd: launched.append((command, cwd)) or 0,
++    )
++    monkeypatch.setattr(cli_main, "PROJECT_ROOT", tmp_path)
++
++    with pytest.raises(SystemExit) as exc:
++        cli_main.cmd_gui(_ns(cwd=str(tmp_path), snapd=True))
++
++    assert exc.value.code == 0
++    assert built == [tmp_path]
++    assert installed == [snap_file]
++    assert launched == [([sys.executable, "-m", "hermes_cli.main"], str(tmp_path))]
+ 
+ @pytest.mark.parametrize("exists,platform", [(True, "darwin"), (False, "darwin"), (True, "linux")])
+ def test_launch_installed_macos_desktop_app_gates_on_bundle_and_platform(tmp_path, monkeypatch, exists, platform):
