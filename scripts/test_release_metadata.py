@@ -108,6 +108,8 @@ class ReleaseMetadataTest(unittest.TestCase):
         notes = release_notes("v0.22.5", SHA, "b" * 40)
         self.assertIn("Unofficial Linux desktop packages", notes)
         self.assertIn("Hermes-0.22.5-linux-x86_64.AppImage", notes)
+        self.assertIn("Hermes-0.22.5-linux-x86_64.AppImage.zsync", notes)
+        self.assertIn("AppImageLauncher", notes)
         self.assertIn("Hermes-0.22.5-linux-amd64.deb", notes)
         self.assertIn("Hermes-0.22.5-linux-x86_64.rpm", notes)
         self.assertIn(SHA, notes)

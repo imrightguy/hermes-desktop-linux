@@ -12,7 +12,8 @@ For each stable upstream tag (the same tag name, for example `v0.22.5`):
 
 | File | Use |
 | --- | --- |
-| `Hermes-<version>-linux-x86_64.AppImage` | `chmod +x` and run |
+| `Hermes-<version>-linux-x86_64.AppImage` | `chmod +x` and run. AppImageLauncher and Gear Lever can update it. |
+| `Hermes-<version>-linux-x86_64.AppImage.zsync` | Update metadata for that AppImage. The AppImage's update information is `gh-releases-zsync\|<owner>\|<repo>\|latest\|Hermes-*-x86_64.AppImage.zsync`. |
 | `Hermes-<version>-linux-amd64.deb` | `sudo apt install ./Hermes-<version>-linux-amd64.deb` |
 | `Hermes-<version>-linux-x86_64.rpm` | `sudo dnf install ./Hermes-<version>-linux-x86_64.rpm` |
 | `Hermes-<version>-linux-x86_64.flatpak` | `flatpak install --user ./Hermes-<version>-linux-x86_64.flatpak` |
@@ -37,21 +38,15 @@ The workflow:
 2. Skips the run when this repository already has a release with that tag.
 3. Clones `NousResearch/hermes-agent` at that tag.
 4. Applies `patches/*.patch` with `git apply --3way`, then copies `packaging/` into the tree. The first patch that does not apply fails the run.
-5. Builds the AppImage, `.deb`, and `.rpm`, then the Flatpak and the snap from the unpacked app.
+5. Builds the AppImage, `.deb`, and `.rpm`, embeds AppImage update information and a `.zsync` with appimagetool 1.9.1, then builds the Flatpak and the snap from the unpacked app.
 6. Publishes a GitHub Release on **this** repository with the upstream tag and attaches every artifact.
 
 It uses the default `GITHUB_TOKEN` (`contents: write` to create the release, `issues: write` to file a failure). No personal access token is required, because nothing is pushed back to the upstream project.
 
 If a patch fails to apply or any build fails, the workflow does not publish. It opens an issue titled `Linux packaging failed for <tag>`, or updates that issue if it is already open. Fix the overlay and re-run the workflow with the version input set to that tag. Delete a partial release for the tag first if one was created; an existing tag is skipped.
 
-The packaging patch was taken from the Linux desktop work on `imrightguy/hermes-agent` branch `cursor/upstream-linux-release-8885`, rebased onto upstream `v0.22.5` (Flatpak, Snap, and AppImage packaging, plus the CommonJS icon-tool fix and the electron-builder artifact names). It keeps applying to newer stable tags until upstream edits one of the patched files. Snap stage packages use the Ubuntu 24.04 names `libgtk-3-0t64` and `libatspi2.0-0t64`, which are what current GitHub runners and the `core24` base provide.
+The packaging patch carries the Linux desktop work from `imrightguy/hermes-agent` branch `cursor/upstream-linux-release-8885` (Flatpak, Snap, and AppImage packaging, plus the CommonJS icon-tool fix). It is regenerated against upstream `v0.22.7`. Snap stage packages use the Ubuntu 24.04 names `libgtk-3-0t64` and `libatspi2.0-0t64`, which are what current GitHub runners and the `core24` base provide.
 
-## First run
+`v0.22.6` and `v0.22.7` were not published: the `v0.22.5` patch no longer applied. After this change is on `main`, run **Linux desktop release** with version `v0.22.7` and dry run off.
 
-Scheduled runs start only after this workflow file is on the default branch. After merging:
-
-1. Open the **Actions** tab and enable Actions if GitHub has them turned off.
-2. Enable **Issues** so a failed build can be recorded.
-3. Run the workflow once by hand. Leave the version empty to publish the current stable release, or turn on dry run to build without publishing.
-
-No repository secret is required.
+Scheduled runs use the workflow on the default branch. No repository secret is required. To publish a tag the schedule skipped, run the workflow with that version and dry run off. An existing release for the tag is left as-is.
