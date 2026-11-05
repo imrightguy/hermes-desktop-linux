@@ -1,8 +1,8 @@
 diff --git a/.gitignore b/.gitignore
-index cc99d65e24d669572bf52a23d6611f2da23cf1da..7258da9ce5873df35fd1b44653a489af95635ea1 100644
+index f9a8e1dbc46f54e5dff77a9dfcc130ee0973d828..39f8b5c47bf9f1626a9055c89877dedd708a08ff 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -125,6 +125,16 @@ apps/desktop/release/
+@@ -127,6 +127,16 @@ apps/desktop/release/
  apps/desktop/.staging-*/
  *.tsbuildinfo
  
@@ -20,10 +20,10 @@ index cc99d65e24d669572bf52a23d6611f2da23cf1da..7258da9ce5873df35fd1b44653a489af
  # `npm run sync-assets` (see web/package.json).
  web/public/fonts/
 diff --git a/apps/desktop/electron/main.ts b/apps/desktop/electron/main.ts
-index 3206f7e63c2e2e7bdbdfe49868e44303252d0264..7fab69347c9473edd1ccf1d8349f10453b5f5a51 100644
+index 8e422d6b65c62f8d8178380d4d637628bed48050..67da98bef98ecf1f85644331ec6e6a2d4925c244 100644
 --- a/apps/desktop/electron/main.ts
 +++ b/apps/desktop/electron/main.ts
-@@ -634,6 +634,7 @@ import { ChannelStrategy } from './updater/channel-strategy'
+@@ -645,6 +645,7 @@ import { ChannelStrategy } from './updater/channel-strategy'
  import { verifyPreparedChannelInstaller } from './updater/channel-windows-host'
  import { type CheckoutStrategy, createCheckoutStrategy } from './updater/checkout'
  import { readSourceUpdate, sourceChannelName, type SourceUpdate } from './updater/checkout-source'
@@ -31,7 +31,7 @@ index 3206f7e63c2e2e7bdbdfe49868e44303252d0264..7fab69347c9473edd1ccf1d8349f1045
  import { ExternalStrategy } from './updater/external'
  import { readUpdatesFeedBaseFromConfig, resolveFeedBaseUrl } from './updater/feed-config'
  import { createChannelMacStrategy, createMacStrategy } from './updater/mac-client'
-@@ -3467,6 +3468,19 @@ function emitUpdateProgress(payload) {
+@@ -3409,6 +3410,19 @@ function emitUpdateProgress(payload) {
  }
  
  async function checkUpdates(opts: { force?: boolean } = {}): Promise<UpdaterStatusWire> {
@@ -51,7 +51,7 @@ index 3206f7e63c2e2e7bdbdfe49868e44303252d0264..7fab69347c9473edd1ccf1d8349f1045
    // A packaged install delegates to the update owner named by its stamp.
    let strategy: UpdaterStrategy | null = null
  
-@@ -4402,6 +4416,18 @@ async function applyUpdates(): Promise<UpdaterApplyResultWire> {
+@@ -4344,6 +4358,18 @@ async function applyUpdates(): Promise<UpdaterApplyResultWire> {
      let handedOff: boolean = false
  
      try {
@@ -84,10 +84,10 @@ index bcab529ae7170812b1caeee9ffe072db524f855f..7450d5ea068de9d518245cc0c091c265
    error?: string
    behind?: number | null
 diff --git a/apps/desktop/package.json b/apps/desktop/package.json
-index b8e33c346368da117ffa45dde0854be84dc36ea0..63b23f011c144daaa624fa1cd3df6d53397643a0 100644
+index 0de682cb3971ba6c3106c1a6337e402a53dea041..a10cb2e93994c1ad9bdbf9168f9a220411c96029 100644
 --- a/apps/desktop/package.json
 +++ b/apps/desktop/package.json
-@@ -41,6 +41,9 @@
+@@ -43,6 +43,9 @@
      "dist:win": "npm run build && npm run builder -- --win msix",
      "dist:win:msix": "npm run build && npm run builder -- --win msix",
      "dist:linux": "npm run build && npm run builder -- --linux AppImage deb rpm",
@@ -113,10 +113,10 @@ index ca780b8b181f5e911b96e056992c0de2238f2a8c..fc0dc60f6f6553189b570d1f3b38be1b
      const destination = path.join(tools, name)
      fs.rmSync(destination, { recursive: true, force: true })
 diff --git a/apps/desktop/src/global.d.ts b/apps/desktop/src/global.d.ts
-index b266da09084b763017fd34ad93e0aba8dda2d700..b9c4beca0fe6d4bbbc15e2f850475914cbe179bd 100644
+index d85915fd5e1627f0cf984fb649ebe0f929bcae2f..f7d678178205d4a9a9baee38abbb88e4157d5241 100644
 --- a/apps/desktop/src/global.d.ts
 +++ b/apps/desktop/src/global.d.ts
-@@ -879,6 +879,8 @@ export interface DesktopUpdateStatus {
+@@ -986,6 +986,8 @@ export interface DesktopUpdateStatus {
    currentBranch?: string
    reason?: string
    message?: string
@@ -126,11 +126,11 @@ index b266da09084b763017fd34ad93e0aba8dda2d700..b9c4beca0fe6d4bbbc15e2f850475914
    /** Exact commits behind. null = update available, but the count is
     *  unknowable (shallow clone without a merge-base) — never render it as a
 diff --git a/hermes_cli/main_desktop.py b/hermes_cli/main_desktop.py
-index 537a84f0057e81edea131b0dd6a02423ea22e1ea..13c1387582e2f0f7239a14768b6194da246cf44c 100644
+index 0c35d63756f27710e7d74700e573c4b422c717a8..ffcaa9ffaa550f45777b9fadad327f0b50b91231 100644
 --- a/hermes_cli/main_desktop.py
 +++ b/hermes_cli/main_desktop.py
-@@ -1627,8 +1627,63 @@ def _launch_installed_macos_desktop_app() -> bool:
-     return True
+@@ -1694,8 +1694,63 @@ def _run_desktop_one_shot(args: argparse.Namespace, desktop_dir: Path, *, bundle
+         sys.exit(0 if exe is not None and install_profile(exe) else 1)
  
  
 +def _project_root() -> Path:
@@ -194,10 +194,10 @@ index 537a84f0057e81edea131b0dd6a02423ea22e1ea..13c1387582e2f0f7239a14768b6194da
      from hermes_cli.source_build import prepare_source_dependencies, source_build_env
      desktop_dir = PROJECT_ROOT / "apps" / "desktop"
 diff --git a/hermes_cli/subcommands/gui.py b/hermes_cli/subcommands/gui.py
-index a4dd29d50af9bb96285208ec008b4a509cc16441..6835db91149c52aee1a9d1feaafc0b23e7ecf6a9 100644
+index e4fb503d50ef64b42f7b4c5005e9485275b0f8d1..82ff49c0118c80ba1e6ac0e1889a5e9718c24684 100644
 --- a/hermes_cli/subcommands/gui.py
 +++ b/hermes_cli/subcommands/gui.py
-@@ -59,4 +59,14 @@ def build_gui_parser(subparsers, *, cmd_gui: Callable) -> None:
+@@ -64,4 +64,14 @@ def build_gui_parser(subparsers, *, cmd_gui: Callable) -> None:
          action="store_true",
          help="Close the preview pane and exit its fullscreen (out-of-band escape hatch when the pane captured all input)",
      )
